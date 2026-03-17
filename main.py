@@ -33,7 +33,7 @@ def main():
     
     parser.add_argument('--version', action='version', version='%(prog)s 2.0')
     
-    subparsers = parser.add_subparsers(title='运行模式', dest='mode', required=True)
+    subparsers = parser.add_subparsers(title='运行模式', dest='mode')
     
     # Web 模式
     web_parser = subparsers.add_parser('web', help='启动 Web 界面')

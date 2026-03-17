@@ -15,7 +15,7 @@ except ImportError:
     AKSHARE_AVAILABLE = False
     print("Warning: akshare not installed. Data fetching will not work.")
 
-from .config import CONFIG
+from ..config import CONFIG
 
 
 class StockFetcher:

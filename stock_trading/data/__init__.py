@@ -3,6 +3,6 @@ Data module
 """
 
 from .fetcher import StockFetcher
-from .storage import DataStorage
+from .storage import Database
 
-__all__ = ["StockFetcher", "DataStorage"]
+__all__ = ["StockFetcher", "Database"]
