@@ -1,203 +1,213 @@
-#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-股票交易系统 - 主入口
+ClawTrade CLI 入口
 """
-
-import sys
 import argparse
-from stock_trading.config import CONFIG
+import sys
+from pathlib import Path
+from datetime import datetime
+
+import config
+from stock_picker.selector.b1_selector import B1Selector
+from stock_picker.selector.brick_selector import BrickChartSelector
+from stock_picker.data.fetcher import DataFetcher
+from stock_picker.data.storage import DataStorage
+from stock_picker.utils.logger import setup_logger
+
+
+logger = setup_logger()
+
+
+def cmd_fetch(args):
+    """获取数据"""
+    logger.info("开始获取数据...")
+    
+    fetcher = DataFetcher(
+        data_source=config.DATA_SOURCE,
+        data_dir=config.RAW_DATA_DIR,
+    )
+    
+    codes = None
+    if args.codes:
+        codes = [c.strip() for c in args.codes.split(",")]
+    
+    fetcher.fetch_all(
+        codes=codes,
+        start=args.start,
+        end=args.end,
+        workers=args.workers,
+    )
+    
+    logger.info("数据获取完成")
+
+
+def cmd_select(args):
+    """选股"""
+    logger.info("开始选股...")
+    
+    # 加载数据
+    fetcher = DataFetcher(data_dir=config.RAW_DATA_DIR)
+    data = fetcher.load_all_csv()
+    
+    if not data:
+        logger.error("未找到数据，请先运行 fetch 命令")
+        return
+    
+    # 选择选股器
+    if args.strategy == "b1":
+        selector = B1Selector(
+            j_threshold=float(args.j_threshold) if args.j_threshold else 15.0,
+            j_q_threshold=0.10,
+        )
+    elif args.strategy == "brick":
+        selector = BrickChartSelector()
+    else:
+        logger.error(f"未知策略: {args.strategy}")
+        return
+    
+    # 选股日期
+    pick_date = pd.Timestamp(args.date) if args.date else pd.Timestamp.now()
+    
+    # 执行选股
+    candidates = []
+    for code, df in data.items():
+        try:
+            pf = selector.prepare_df(df)
+            if selector.vec_picks_from_prepared(pf, start=pick_date, end=pick_date):
+                row = pf.loc[pick_date]
+                candidates.append({
+                    "code": code,
+                    "date": pick_date.strftime("%Y-%m-%d"),
+                    "strategy": args.strategy,
+                    "close": float(row["close"]),
+                    "turnover_n": float(row["turnover_n"]) if "turnover_n" in row else 0,
+                })
+        except Exception as e:
+            logger.debug(f"{code} 选股失败: {e}")
+    
+    # 保存结果
+    storage = DataStorage(config.DATABASE_PATH)
+    storage.save_candidates(candidates)
+    
+    # 打印结果
+    print(f"\n选出 {len(candidates)} 只股票:")
+    for c in candidates:
+        print(f"  {c['code']} - {c['strategy']} - 收盘价: {c['close']:.2f}")
+    
+    logger.info("选股完成")
+
+
+def cmd_backtest(args):
+    """回测"""
+    logger.info("开始回测...")
+    
+    from stock_picker.backtest import BacktestEngine
+    from stock_picker.data.fetcher import DataFetcher
+    
+    # 获取数据
+    fetcher = DataFetcher(data_dir=config.RAW_DATA_DIR)
+    
+    codes = args.stocks.split(",") if args.stocks else ["600519"]
+    
+    data = {}
+    for code in codes:
+        df = fetcher.load_csv(code.strip())
+        if not df.empty:
+            data[code.strip()] = df
+    
+    if not data:
+        logger.error("未找到数据")
+        return
+    
+    # 创建信号（这里简化处理，实际应根据策略生成）
+    signals = {}
+    for code in data:
+        # 取最近几天作为信号
+        dates = data[code]["date"].astype(str).tolist()[-5:]
+        for d in dates:
+            if d not in signals:
+                signals[d] = []
+            signals[d].append(code)
+    
+    # 运行回测
+    engine = BacktestEngine(
+        initial_capital=config.DEFAULT_INITIAL_CAPITAL,
+        commission=args.commission if args.commission else config.DEFAULT_COMMISSION,
+    )
+    
+    result = engine.run(
+        data=data,
+        signals=signals,
+        start_date=args.start,
+        end_date=args.end,
+    )
+    
+    engine.print_result(result)
+    
+    logger.info("回测完成")
+
+
+def cmd_result(args):
+    """查看选股结果"""
+    storage = DataStorage(config.DATABASE_PATH)
+    
+    if args.type == "candidates":
+        data = storage.load_candidates(args.date)
+        print(f"\n候选股票 ({len(data)} 只):")
+        for c in data:
+            print(f"  {c['code']} - {c['strategy']} - {c['close']:.2f}")
+    elif args.type == "recommendations":
+        data = storage.load_recommendations(args.date)
+        print(f"\n推荐股票 ({len(data)} 只):")
+        for r in data:
+            print(f"  {r['code']} - {r['strategy']} - 评分: {r['score']:.1f} - {r['verdict']}")
 
 
 def main():
-    """主入口"""
-    parser = argparse.ArgumentParser(
-        description='股票交易系统',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例:
-  # Web 界面
-  python main.py web --port 5000
-
-  # 命令行
-  python main.py price 600519
-  python main.py buy 600519 --price 1700 --quantity 100
-  python main.py sell 600519 --price 1750 --quantity 50
-  python main.py portfolio
-  python main.py trades
-  
-  # 回测
-  python main.py backtest --code 600519 --start 20230101 --end 20231231
-  python main.py backtest --code 600519 --start 20230101 --end 20231231 --strategy mean_reversion
-        """
-    )
+    parser = argparse.ArgumentParser(description="ClawTrade 股票交易系统")
+    subparsers = parser.add_subparsers(dest="command", help="子命令")
     
-    parser.add_argument('--version', action='version', version='%(prog)s 2.0')
+    # fetch 子命令
+    fetch_parser = subparsers.add_parser("fetch", help="获取股票数据")
+    fetch_parser.add_argument("--codes", type=str, help="股票代码，逗号分隔")
+    fetch_parser.add_argument("--start", type=str, default="20240101", help="开始日期")
+    fetch_parser.add_argument("--end", type=str, help="结束日期")
+    fetch_parser.add_argument("--workers", type=int, default=4, help="并发数")
+    fetch_parser.set_defaults(func=cmd_fetch)
     
-    subparsers = parser.add_subparsers(title='运行模式', dest='mode')
+    # select 子命令
+    select_parser = subparsers.add_parser("select", help="选股")
+    select_parser.add_argument("--strategy", type=str, default="b1", choices=["b1", "brick"], help="策略")
+    select_parser.add_argument("--date", type=str, help="选股日期")
+    select_parser.add_argument("--j-threshold", type=str, help="J值阈值")
+    select_parser.set_defaults(func=cmd_select)
     
-    # Web 模式
-    web_parser = subparsers.add_parser('web', help='启动 Web 界面')
-    web_parser.add_argument('--host', default='0.0.0.0', help='监听地址')
-    web_parser.add_argument('--port', type=int, default=5000, help='监听端口')
-    web_parser.add_argument('--debug', action='store_true', help='调试模式')
-    web_parser.set_defaults(func=run_web)
+    # backtest 子命令
+    backtest_parser = subparsers.add_parser("backtest", help="回测")
+    backtest_parser.add_argument("--stocks", type=str, help="股票代码，逗号分隔")
+    backtest_parser.add_argument("--start", type=str, help="开始日期")
+    backtest_parser.add_argument("--end", type=str, help="结束日期")
+    backtest_parser.add_argument("--commission", type=float, help="手续费率")
+    backtest_parser.set_defaults(func=cmd_backtest)
     
-    # CLI 模式
-    cli_parser = subparsers.add_parser('cli', help='命令行界面')
-    cli_parser.add_argument('args', nargs='*', help='CLI 参数')
-    cli_parser.set_defaults(func=run_cli)
-    
-    # 回测模式
-    bt_parser = subparsers.add_parser('backtest', help='策略回测')
-    bt_parser.add_argument('--code', '--stock', dest='stock_code', required=True, help='股票代码')
-    bt_parser.add_argument('--start', dest='start_date', required=True, help='开始日期')
-    bt_parser.add_argument('--end', dest='end_date', required=True, help='结束日期')
-    bt_parser.add_argument('--strategy', default='macd', help='策略 (macd/mean_reversion)')
-    bt_parser.add_argument('--capital', type=float, help='初始资金')
-    bt_parser.add_argument('--plot', action='store_true', help='绘制图表')
-    bt_parser.set_defaults(func=run_backtest)
-    
-    # 价格查询
-    price_parser = subparsers.add_parser('price', help='查询股票价格')
-    price_parser.add_argument('stock_code', help='股票代码')
-    price_parser.set_defaults(func=run_price)
-    
-    # 买入
-    buy_parser = subparsers.add_parser('buy', help='买入股票')
-    buy_parser.add_argument('stock_code', help='股票代码')
-    buy_parser.add_argument('--price', type=float, required=True, help='价格')
-    buy_parser.add_argument('--quantity', type=int, required=True, help='股数')
-    buy_parser.set_defaults(func=run_buy)
-    
-    # 卖出
-    sell_parser = subparsers.add_parser('sell', help='卖出股票')
-    sell_parser.add_argument('stock_code', help='股票代码')
-    sell_parser.add_argument('--price', type=float, required=True, help='价格')
-    sell_parser.add_argument('--quantity', type=int, required=True, help='股数')
-    sell_parser.set_defaults(func=run_sell)
-    
-    # 持仓
-    portfolio_parser = subparsers.add_parser('portfolio', help='查看持仓')
-    portfolio_parser.set_defaults(func=run_portfolio)
+    # result 子命令
+    result_parser = subparsers.add_parser("result", help="查看结果")
+    result_parser.add_argument("--type", type=str, choices=["candidates", "recommendations"], default="candidates")
+    result_parser.add_argument("--date", type=str, help="日期")
+    result_parser.set_defaults(func=cmd_result)
     
     args = parser.parse_args()
+    
+    if args.command is None:
+        parser.print_help()
+        return
+    
+    # 导入pandas（避免循环导入）
+    global pd
+    import pandas as pd
+    
     args.func(args)
 
 
-def run_web(args):
-    """启动Web服务"""
-    from stock_trading.ui.web import run
-    print(f"启动 Web 服务: http://{args.host}:{args.port}")
-    run(host=args.host, port=args.port, debug=args.debug)
-
-
-def run_cli(args):
-    """运行命令行"""
-    from stock_trading.ui.cli import CLI
-    cli = CLI()
-    cli.run(args.args)
-
-
-def run_backtest(args):
-    """运行回测"""
-    from stock_trading.backtest.engine import BacktestEngine
-    from stock_trading.strategy.macd import MACDStrategy
-    from stock_trading.strategy.mean_reversion import MeanReversionStrategy
-    
-    print(f"\n{'='*50}")
-    print(f"回测: {args.stock_code}")
-    print(f"时间: {args.start_date} ~ {args.end_date}")
-    print(f"策略: {args.strategy}")
-    print(f"{'='*50}\n")
-    
-    # 策略选择
-    if args.strategy == 'macd':
-        strategy = MACDStrategy()
-    elif args.strategy == 'mean_reversion':
-        strategy = MeanReversionStrategy()
-    else:
-        print(f"未知策略: {args.strategy}")
-        return
-    
-    # 创建引擎
-    engine = BacktestEngine(
-        strategy=strategy,
-        initial_capital=args.capital or CONFIG["default_initial_capital"]
-    )
-    
-    # 加载数据
-    if not engine.load_data(args.stock_code, args.start_date, args.end_date):
-        print("❌ 数据加载失败")
-        return
-    
-    # 运行
-    result = engine.run(verbose=True)
-    
-    # 绘图
-    if args.plot:
-        engine.plot_results()
-
-
-def run_price(args):
-    """查询价格"""
-    from stock_trading.data.fetcher import StockFetcher
-    
-    fetcher = StockFetcher()
-    data = fetcher.get_realtime(args.stock_code)
-    
-    if data:
-        print(f"\n{data.get('name', args.stock_code)} ({args.stock_code})")
-        print(f"最新价: {data.get('price', 'N/A')}")
-        print(f"涨跌幅: {data.get('change', 'N/A')}%")
-    else:
-        print(f"未找到 {args.stock_code}")
-
-
-def run_buy(args):
-    """买入"""
-    from stock_trading.portfolio.manager import PortfolioManager
-    
-    pm = PortfolioManager()
-    success = pm.buy(args.stock_code, args.price, args.quantity)
-    
-    if success:
-        print(f"✅ 买入成功: {args.stock_code} x {args.quantity} @ {args.price}")
-    else:
-        print("❌ 买入失败")
-
-
-def run_sell(args):
-    """卖出"""
-    from stock_trading.portfolio.manager import PortfolioManager
-    
-    pm = PortfolioManager()
-    success = pm.sell(args.stock_code, args.price, args.quantity)
-    
-    if success:
-        print(f"✅ 卖出成功: {args.stock_code} x {args.quantity} @ {args.price}")
-    else:
-        print("❌ 卖出失败")
-
-
-def run_portfolio(args):
-    """查看持仓"""
-    from stock_trading.portfolio.manager import PortfolioManager
-    
-    pm = PortfolioManager()
-    positions = pm.get_positions()
-    
-    print(f"\n{'='*50}")
-    print(f"现金: {pm.cash:,.2f}")
-    print(f"{'='*50}")
-    
-    if not positions.empty:
-        print(f"\n{'代码':<10} {'股数':<8} {'成本':<12} {'总成本':<15}")
-        print("-" * 50)
-        for _, row in positions.iterrows():
-            print(f"{row['stock_code']:<10} {row['quantity']:<8} {row['avg_cost']:<12.2f} {row['total_cost']:<15.2f}")
-    else:
-        print("\n暂无持仓")
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

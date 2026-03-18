@@ -1,160 +1,236 @@
 # ClawTrade 股票交易系统
 
-基于 Python 的本地量化投资工具，支持策略生成、市场分析、持仓复盘、回测验证。
+> 简化版：每日收盘后选股 + 策略回测 | CLI only
 
-## 一、项目结构
+## 一、系统定位
+
+### 核心功能：
+- 每日收盘后选股
+- 选股策略回测验证
+
+### 不做：
+- Web 界面
+- 持仓管理
+- 实时交易
+
+---
+
+## 二、系统架构
+
+```
+┌─────────────────────────────────────────┐
+│            应用层 (Python CLI)          │
+├─────────────────────────────────────────┤
+│   ┌─────────────┐    ┌─────────────┐   │
+│   │   选股器    │    │   回测引擎   │   │
+│   └─────────────┘    └─────────────┘   │
+└─────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│                 数据层                  │
+│                                         │
+│   ┌──────────┐    ┌──────────┐         │
+│   │ SQLite   │    │  AkShare  │         │
+│   │ (本地存储)│    │ (行情数据) │         │
+│   └──────────┘    └──────────┘         │
+└─────────────────────────────────────────┘
+```
+
+---
+
+## 三、核心功能
+
+### 3.1 选股器 (Stock Selector)
+
+| 功能 | 说明 |
+|------|------|
+| B1策略选股 | 基于KDJ、知行线、周线均线的选股策略 |
+| 砖型图选股 | 基于砖型图形态的选股策略 |
+
+### 3.2 回测引擎 (Backtest Engine)
+
+| 功能 | 说明 |
+|------|------|
+| 历史回测 | 基于历史数据回测策略 |
+| 绩效分析 | 夏普比率、最大回撤、胜率 |
+
+---
+
+## 四、技术栈
+
+| 组件 | 技术 |
+|------|------|
+| 语言 | Python 3.8+ |
+| 数据获取 | AkShare / Tushare |
+| 数据处理 | Pandas, NumPy, Numba |
+| 回测框架 | 自研 |
+| 数据库 | SQLite |
+
+---
+
+## 五、项目结构
 
 ```
 ClawTrade/
-├── main.py                     # 主入口文件
-├── requirements.txt            # 依赖列表
-├── stock_trading/              # 核心模块
-│   ├── __init__.py
-│   ├── config.py               # 配置文件
-│   ├── data/                   # 数据层
-│   │   ├── __init__.py
-│   │   ├── fetcher.py          # 数据获取 (AkShare)
-│   │   └── storage.py          # 数据存储 (SQLite)
-│   ├── strategy/               # 策略模块
-│   │   ├── __init__.py
-│   │   ├── base.py             # 策略基类
-│   │   ├── macd.py             # MACD 策略
-│   │   └── mean_reversion.py   # 均值回归策略
-│   ├── market/                 # 市场分析模块
-│   │   ├── __init__.py
-│   │   ├── analyzer.py         # 市场分析
-│   │   └── flow.py             # 资金流向分析
-│   ├── portfolio/              # 持仓管理模块
-│   │   ├── __init__.py
-│   │   ├── manager.py          # 持仓管理
-│   │   └── analytics.py        # 持仓分析
-│   ├── backtest/               # 回测模块
-│   │   ├── __init__.py
-│   │   ├── engine.py           # 回测引擎
-│   │   └── optimizer.py        # 参数优化
-│   └── ui/                     # 界面模块
-│       ├── __init__.py
-│       ├── web.py              # Web 界面 (Flask)
-│       └── cli.py              # 命令行界面
-├── data/                       # 数据目录
-│   ├── cache/                  # 缓存
-│   └── exports/                # 导出
-└── logs/                       # 日志目录
+├── main.py                 # CLI 入口
+├── config.py               # 配置文件
+├── requirements.txt        # 依赖
+├── stock_picker/
+│   ├── selector/           # 选股模块
+│   │   ├── base.py         # 选股基类
+│   │   ├── b1_selector.py  # B1策略选股器
+│   │   └── brick_selector.py  # 砖型图选股器
+│   ├── data/               # 数据模块
+│   │   ├── fetcher.py      # 数据获取
+│   │   └── storage.py      # 数据存储
+│   ├── backtest/           # 回测模块
+│   │   └── engine.py       # 回测引擎
+│   └── utils/              # 工具模块
+│       ├── indicators.py  # 技术指标
+│       └── logger.py      # 日志工具
+└── data/                   # 数据目录
 ```
 
-## 二、系统运行的主要流程
+---
 
-### 2.1 命令行模式
+## 六、快速开始
 
-```bash
-# 查询股票价格
-python main.py price 600519
-
-# 买入股票
-python main.py buy 600519 --price 1700 --quantity 100
-
-# 卖出股票
-python main.py sell 600519 --price 1750 --quantity 50
-
-# 查看持仓
-python main.py portfolio
-
-# 策略回测
-python main.py backtest --code 600519 --start 20230101 --end 20231231
-```
-
-### 2.2 Web 界面模式
-
-```bash
-# 启动 Web 服务
-python main.py web --port 5000
-# 访问 http://localhost:5000
-```
-
-### 2.3 核心模块调用流程
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   UI 层     │ ──▶ │   策略层    │ ──▶ │   数据层    │
-│ (CLI/Web)   │     │ (MACD/均值) │     │ (AkShare)   │
-└─────────────┘     └─────────────┘     └─────────────┘
-                           │
-                           ▼
-                    ┌─────────────┐     ┌─────────────┐
-                    │   回测引擎   │ ──▶ │   持仓管理   │
-                    │  (Backtest) │     │ (Portfolio) │
-                    └─────────────┘     └─────────────┘
-```
-
-### 2.4 回测流程
-
-1. **加载数据** → `StockFetcher.get_kline()` 获取历史K线
-2. **生成信号** → 策略 `generate_signals()` 产生买入/卖出信号
-3. **模拟交易** → `BacktestEngine.run()` 按信号执行交易
-4. **计算结果** → 输出收益率、夏普比率、最大回撤等指标
-
-## 三、本次更新主要修改的内容
-
-### v2.0 更新 (2026-03-17)
-
-本次更新实现了完整的单机版股票交易系统，主要包含：
-
-#### 1. 数据层 (`stock_trading/data/`)
-- `fetcher.py`: 集成 AkShare 获取实时行情、K线、资金流向
-- `storage.py`: SQLite 数据持久化
-- `__init__.py`: 模块导出
-
-#### 2. 策略层 (`stock_trading/strategy/`)
-- `base.py`: 抽象策略基类，定义信号生成接口
-- `macd.py`: MACD 指标策略实现
-- `mean_reversion.py`: 均值回归策略实现
-
-#### 3. 市场分析层 (`stock_trading/market/`)
-- `analyzer.py`: 市场概览、板块分析、个股查询
-- `flow.py`: 资金流向分析、主力资金追踪
-
-#### 4. 持仓管理层 (`stock_trading/portfolio/`)
-- `manager.py`: 买入/卖出、持仓记录、交易流水
-- `analytics.py`: 绩效分析、风险指标、报告生成
-
-#### 5. 回测引擎 (`stock_trading/backtest/`)
-- `engine.py`: 完整回测引擎，支持滑点、手续费设置
-- `optimizer.py`: 参数网格搜索优化、Walk-Forward 分析
-
-#### 6. 用户界面 (`stock_trading/ui/`)
-- `web.py`: Flask Web 界面 (Dashboard/行情/持仓/回测)
-- `cli.py`: 命令行工具，支持 price/buy/sell/portfolio/backtest
-
-#### 7. 入口文件 (`main.py`)
-- 统一命令行入口，支持多种运行模式
-- 修复 Python 3.6 兼容性问题
-
-### 修复的问题
-
-- ✅ 修复 `data/fetcher.py` 导入路径错误
-- ✅ 修复 `data/__init__.py` 类名不匹配
-- ✅ 修复 Python 3.6 `argparse` 兼容性问题
-
-## 四、依赖安装
+### 6.1 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-主要依赖：
-- `akshare` - 股票数据获取
-- `pandas` - 数据处理
-- `numpy` - 数值计算
-- `flask` - Web 框架
-- `matplotlib` - 图表绘制
+### 6.2 环境配置
 
-## 五、注意事项
+```bash
+# 设置Tushare Token（可选）
+export TUSHARE_TOKEN=你的token
 
-- 本系统仅供研究学习，不构成投资建议
-- 回测结果 ≠ 实盘收益，需考虑滑点、手续费等因素
-- 数据来源于 AkShare，需保持网络连接
+# 设置Gemini API Key（可选）
+export GEMINI_API_KEY=你的key
+```
+
+### 6.3 使用方式
+
+```bash
+# 查看帮助
+python main.py --help
+
+# 获取数据
+python main.py fetch --codes 600519,000001 --start 20240101
+
+# 选股
+python main.py select --strategy b1 --date 20240315
+
+# 回测
+python main.py backtest --stocks 600519,000001 --start 20230101 --end 20231231
+
+# 查看结果
+python main.py result --type candidates
+```
 
 ---
 
-**版本**: v2.0  
-**更新日期**: 2026-03-17
+## 七、命令行功能
+
+### 7.1 获取数据
+
+```bash
+# 获取指定股票
+python main.py fetch --codes 600519,000001
+
+# 获取所有A股（默认排除创业板、科创板、北交所）
+python main.py fetch --start 20240101
+```
+
+### 7.2 选股
+
+```bash
+# B1策略选股
+python main.py select --strategy b1
+
+# 砖型图策略选股
+python main.py select --strategy brick
+
+# 指定日期
+python main.py select --strategy b1 --date 20240315
+```
+
+### 7.3 回测
+
+```bash
+# 基础回测
+python main.py backtest --stocks 600519
+
+# 自定义参数
+python main.py backtest --stocks 600519 --commission 0.0003 --start 20230101
+```
+
+---
+
+## 八、选股策略
+
+### B1策略
+
+B1策略由以下四个Filter组成：
+1. **KDJQuantileFilter** - J值低位（<-5或历史10%分位）
+2. **ZXConditionFilter** - 知行线条件（close>zxdkx 且 zxdq>zxdkx）
+3. **WeeklyMABullFilter** - 周线多头排列
+4. **MaxVolNotBearishFilter** - 近20日成交量最大日非阴线
+
+### 砖型图策略
+
+砖型图策略基于砖型图形态进行选股：
+1. **BrickPatternFilter** - 砖型图形态（红柱/绿柱 + 涨幅 + 连续绿柱数）
+2. **ZXDQRatioFilter** - close < zxdq × ratio
+3. **ZXConditionFilter** - zxdq > zxdkx
+4. **WeeklyMABullFilter** - 周线多头排列
+
+---
+
+## 九、配置说明
+
+在 `config.py` 中可以修改以下配置：
+
+```python
+# 数据源
+DATA_SOURCE = "akshare"  # akshare 或 tushare
+
+# 选股参数
+MIN_VOLUME = 100000000  # 最小成交额
+
+# 流动性池配置
+TOP_M = 5000  # 取成交额最高的股票数量
+
+# B1策略参数
+B1_CONFIG = {
+    "enabled": True,
+    "j_threshold": 15.0,
+    "j_q_threshold": 0.10,
+}
+
+# 砖型图策略参数
+BRICK_CONFIG = {
+    "enabled": False,
+    "n": 8,
+    "daily_return_threshold": 0.2,
+}
+```
+
+---
+
+## 十、注意事项
+
+- 数据仅供研究，不构成投资建议
+- 回测不等于实盘
+- 需要网络连接获取数据
+- 建议定期备份数据目录
+
+---
+
+## 版本
+
+- **版本**: v1.0.0
+- **更新**: 2026-03-18
