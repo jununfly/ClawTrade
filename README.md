@@ -175,7 +175,7 @@ python main.py backtest --stocks 600519 --commission 0.0003 --start 20230101
 ### B1策略
 
 B1策略由以下四个Filter组成：
-1. **KDJQuantileFilter** - J值低位（<-5或历史10%分位）
+1. **KDJQuantileFilter** - J值低位（J<15或历史10%分位）
 2. **ZXConditionFilter** - 知行线条件（close>zxdkx 且 zxdq>zxdkx）
 3. **WeeklyMABullFilter** - 周线多头排列
 4. **MaxVolNotBearishFilter** - 近20日成交量最大日非阴线
@@ -187,6 +187,41 @@ B1策略由以下四个Filter组成：
 2. **ZXDQRatioFilter** - close < zxdq × ratio
 3. **ZXConditionFilter** - zxdq > zxdkx
 4. **WeeklyMABullFilter** - 周线多头排列
+
+---
+
+## 九、评分引擎
+
+### 评分体系（总分110分）
+
+| 评分维度 | 分值 | 评分项 |
+|----------|------|--------|
+| 趋势分 | 45分 | QXYQ(35分) + MA20趋势向上(10分) |
+| 超卖分 | 25分 | KDJ J值≤16(15分) + CCI超卖(10分) |
+| 成交量分 | 20分 | 缩量信号 |
+| 结构分 | 20分 | N型结构(8分) + 假突破(6分) + 活跃信号(6分) |
+| 额外分 | 10分 | CCI底背离 |
+
+### 买入信号判断
+
+硬条件检查：
+1. KDJ J值 ≤ 16
+2. 总评分 ≥ 70
+3. VK_RECENT == 1（有底部放量信号）
+4. TOTAL_RISK == 0（无风险标记）
+
+### 使用示例
+
+```python
+from stock_picker.utils.tdx_engine import evaluate_df, check_buy_signal
+
+# 评估整张表
+df = evaluate_df(df)
+last = df.iloc[-1]
+signal = df.attrs['last_buy_signal']
+print(f"TOTAL_SCORE: {last['TOTAL_SCORE']}")
+print(f"BUY_SIGNAL: {signal['is_buy']}")
+```
 
 ---
 
@@ -232,5 +267,6 @@ BRICK_CONFIG = {
 
 ## 版本
 
-- **版本**: v1.0.0
-- **更新**: 2026-03-18
+- **版本**: v3.0
+- **更新**: 2026-03-19
+- **更新内容**: 依据股票交易系统技术方案更新代码，新增评分引擎
