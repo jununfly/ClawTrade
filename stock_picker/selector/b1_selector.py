@@ -9,7 +9,11 @@ B1策略由以下四个Filter组成：
 4. MaxVolNotBearishFilter - 近20日成交量最大日非阴线
 """
 from dataclasses import dataclass
-from typing import Optional, Protocol, Sequence
+try:
+    from typing import Protocol
+except ImportError:
+    from typing_extensions import Protocol
+from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 from numba import njit
@@ -209,7 +213,7 @@ class WeeklyMABullFilter:
 
 @dataclass(frozen=True)
 class MaxVolNotBearishFilter:
-    """成交量最大日非阴线过滤"""
+    """成交量最大日非阴线过滤 - 近20日成交量最大日非阴线"""
     n: int = 20
 
     def __call__(self, hist: pd.DataFrame) -> bool:
@@ -219,6 +223,29 @@ class MaxVolNotBearishFilter:
         idx_max_vol = window["volume"].idxmax()
         row = window.loc[idx_max_vol]
         return float(row["close"]) >= float(row["open"])
+
+    def vec_mask(self, df: pd.DataFrame) -> np.ndarray:
+        """向量化版本：计算每日的成交量最大日是否非阴线"""
+        n = self.n
+        length = len(df)
+        if length < n:
+            return np.zeros(length, dtype=bool)
+        
+        vol = df["volume"].to_numpy(dtype=float)
+        close = df["close"].to_numpy(dtype=float)
+        open_ = df["open"].to_numpy(dtype=float)
+        
+        result = np.zeros(length, dtype=bool)
+        for i in range(n - 1, length):
+            start = i - n + 1
+            window_vol = vol[start:i + 1]
+            idx_max = np.argmax(window_vol)
+            actual_idx = start + idx_max
+            
+            if close[actual_idx] >= open_[actual_idx]:
+                result[i] = True
+        
+        return result
 
 
 def _apply_vec_filters(df: pd.DataFrame, filters: list) -> np.ndarray:
@@ -238,7 +265,7 @@ class B1Selector(BaseSelector):
 
     def __init__(
         self,
-        j_threshold: float = -5.0,
+        j_threshold: float = 15.0,
         j_q_threshold: float = 0.10,
         kdj_n: int = 9,
         zx_m1: int = 14,
@@ -251,7 +278,7 @@ class B1Selector(BaseSelector):
         wma_short: int = 10,
         wma_mid: int = 20,
         wma_long: int = 30,
-        max_vol_lookback: Optional[int] = 20,
+        max_vol_lookback: int = 20,
         **kwargs,
     ):
         super().__init__(name="B1Selector", **kwargs)
@@ -275,12 +302,14 @@ class B1Selector(BaseSelector):
             wma_mid=wma_mid,
             wma_long=wma_long,
         )
+        self._maxvol_filter = MaxVolNotBearishFilter(n=max_vol_lookback)
         
         # 保存参数
         self.kdj_n = kdj_n
         self.zx_m1, self.zx_m2, self.zx_m3, self.zx_m4 = zx_m1, zx_m2, zx_m3, zx_m4
         self.zxdq_span = zxdq_span
         self.wma_short, self.wma_mid, self.wma_long = wma_short, wma_mid, wma_long
+        self.max_vol_lookback = max_vol_lookback
 
     def prepare_df(self, df: pd.DataFrame) -> pd.DataFrame:
         """预计算知行线、KDJ、周线多头排列、向量化pick mask"""
@@ -305,8 +334,13 @@ class B1Selector(BaseSelector):
             df, ma_periods=(self.wma_short, self.wma_mid, self.wma_long)
         ).to_numpy()
         
-        # 向量化pick
-        _b1_vec_filters = [self._kdj_filter, self._zx_filter, self._wma_filter]
+        # 向量化pick - 包含4个Filter
+        _b1_vec_filters = [
+            self._kdj_filter,
+            self._zx_filter,
+            self._wma_filter,
+            self._maxvol_filter,
+        ]
         df["_vec_pick"] = _apply_vec_filters(df, _b1_vec_filters)
         
         return df
@@ -319,12 +353,14 @@ class B1Selector(BaseSelector):
         if len(hist) < self.min_bars:
             return False
         
-        # 逐个检查filter
+        # 逐个检查filter（4个核心Filter）
         if not self._kdj_filter(hist):
             return False
         if not self._zx_filter(hist):
             return False
         if not self._wma_filter(hist):
+            return False
+        if not self._maxvol_filter(hist):
             return False
         
         return True

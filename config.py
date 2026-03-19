@@ -45,42 +45,51 @@ MIN_TURNOVER = 1.0  # 最小换手率
 TOP_M = 5000  # 取成交额最高的股票数量
 N_TURNOVER_DAYS = 43  # 滚动成交额窗口天数
 
-# B1策略参数
+# B1策略参数（与技术文档保持一致）
 B1_CONFIG = {
     "enabled": True,
     "zx_m1": 14,
     "zx_m2": 28,
     "zx_m3": 57,
     "zx_m4": 114,
-    "j_threshold": 15.0,
-    "j_q_threshold": 0.10,
+    "j_threshold": 15.0,         # KDJ J值阈值（技术文档默认值）
+    "j_q_threshold": 0.10,       # J值历史分位
     "kdj_n": 9,
     "zxdq_span": 10,
+    "max_vol_lookback": 20,       # 成交量最大日检查窗口
+    "wma_short": 10,
+    "wma_mid": 20,
+    "wma_long": 30,
 }
 
-# 砖型图策略参数
+# 砖型图策略参数（与技术文档保持一致）
 BRICK_CONFIG = {
     "enabled": False,
-    "n": 8,
+    "n": 8,                     # 砖型图计算窗口
     "m1": 3,
     "m2": 12,
     "m3": 12,
-    "t": 8.0,
+    "t": 8.0,                   # 砖型图阈值
     "shift1": 92.0,
     "shift2": 114.0,
     "sma_w1": 1,
     "sma_w2": 1,
     "sma_w3": 1,
-    "daily_return_threshold": 0.2,
-    "brick_growth_ratio": 0.5,
-    "min_prior_green_bars": 1,
-    "zxdq_ratio": 1.47,
+    "daily_return_threshold": 0.2,  # 今日涨幅上限
+    "brick_growth_ratio": 0.5,      # 红柱/绿柱比例
+    "min_prior_green_bars": 1,      # 连续绿柱数
+    "zxdq_ratio": 1.47,             # 收盘价/zxdq比例
     "zxdq_span": 10,
     "require_zxdq_gt_zxdkx": True,
     "require_weekly_ma_bull": True,
     "wma_short": 5,
     "wma_mid": 10,
     "wma_long": 20,
+    # 知行线参数
+    "zxdkx_m1": 14,
+    "zxdkx_m2": 28,
+    "zxdkx_m3": 57,
+    "zxdkx_m4": 114,
 }
 
 # Gemini 复评配置

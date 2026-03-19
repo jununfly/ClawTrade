@@ -126,14 +126,14 @@ def compute_brick_chart(
 
 @dataclass(frozen=True)
 class BrickComputeParams:
-    """砖型图计算参数"""
-    n: int = 4
-    m1: int = 4
-    m2: int = 6
-    m3: int = 6
-    t: float = 4.0
-    shift1: float = 90.0
-    shift2: float = 100.0
+    """砖型图计算参数（与技术文档保持一致）"""
+    n: int = 8
+    m1: int = 3
+    m2: int = 12
+    m3: int = 12
+    t: float = 8.0
+    shift1: float = 92.0
+    shift2: float = 114.0
     sma_w1: int = 1
     sma_w2: int = 1
     sma_w3: int = 1
@@ -276,24 +276,24 @@ class BrickChartSelector(BaseSelector):
 
     def __init__(
         self,
-        # 砖型图形态参数
-        daily_return_threshold: float = 0.05,
-        brick_growth_ratio: float = 1.0,
+        # 砖型图形态参数（与技术文档保持一致）
+        daily_return_threshold: float = 0.2,
+        brick_growth_ratio: float = 0.5,
         min_prior_green_bars: int = 1,
         # 砖型图计算参数
-        n: int = 4, m1: int = 4, m2: int = 6, m3: int = 6,
-        t: float = 4.0, shift1: float = 90.0, shift2: float = 100.0,
+        n: int = 8, m1: int = 3, m2: int = 12, m3: int = 12,
+        t: float = 8.0, shift1: float = 92.0, shift2: float = 114.0,
         sma_w1: int = 1, sma_w2: int = 1, sma_w3: int = 1,
         # 知行线参数
         zxdq_span: int = 10,
         zxdkx_m1: int = 14, zxdkx_m2: int = 28,
         zxdkx_m3: int = 57, zxdkx_m4: int = 114,
         # 条件开关
-        zxdq_ratio: Optional[float] = 1.0,
+        zxdq_ratio: Optional[float] = 1.47,
         require_zxdq_gt_zxdkx: bool = True,
         require_weekly_ma_bull: bool = True,
         # 周线参数
-        wma_short: int = 20, wma_mid: int = 60, wma_long: int = 120,
+        wma_short: int = 5, wma_mid: int = 10, wma_long: int = 20,
         **kwargs,
     ):
         super().__init__(name="BrickChartSelector", **kwargs)
