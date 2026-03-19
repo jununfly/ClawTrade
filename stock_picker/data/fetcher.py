@@ -4,6 +4,7 @@
 """
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -14,21 +15,35 @@ from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
+# 默认配置
+DEFAULT_TIMEOUT = 10  # 请求超时时间（秒）
+DEFAULT_REQUEST_DELAY = 1.0  # 请求间隔（秒）
+
 
 class DataFetcher:
     """数据获取器"""
 
-    def __init__(self, data_source: str = "akshare", data_dir: Optional[Path] = None):
+    def __init__(
+        self,
+        data_source: str = "akshare",
+        data_dir: Optional[Path] = None,
+        timeout: int = DEFAULT_TIMEOUT,
+        request_delay: float = DEFAULT_REQUEST_DELAY,
+    ):
         """
         初始化数据获取器
         
         Args:
             data_source: 数据源 ("akshare" 或 "tushare")
             data_dir: 数据存储目录
+            timeout: 请求超时时间（秒）
+            request_delay: 请求间隔（秒）
         """
         self.data_source = data_source
         self.data_dir = data_dir or Path("data/raw")
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.timeout = timeout
+        self.request_delay = request_delay
         
         # 初始化Tushare
         if data_source == "tushare":
@@ -218,7 +233,7 @@ class DataFetcher:
         codes: Optional[List[str]] = None,
         start: str = "20190101",
         end: Optional[str] = None,
-        workers: int = 4,
+        workers: int = 1,
     ) -> Dict[str, pd.DataFrame]:
         """
         批量获取多只股票数据
@@ -227,7 +242,7 @@ class DataFetcher:
             codes: 股票代码列表，None时获取全部
             start: 开始日期
             end: 结束日期
-            workers: 并发数
+            workers: 并发数（建议设为1以配合request_delay）
             
         Returns:
             股票代码到DataFrame的映射
@@ -240,25 +255,21 @@ class DataFetcher:
         
         results: Dict[str, pd.DataFrame] = {}
         
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {
-                executor.submit(self.fetch_kline, code, start, end): code
-                for code in codes
-            }
+        # 串行获取（配合延迟）
+        for code in tqdm(codes, desc="下载进度"):
+            try:
+                df = self.fetch_kline(code, start, end)
+                if not df.empty:
+                    # 保存到文件
+                    csv_path = self.data_dir / f"{code}.csv"
+                    df.to_csv(csv_path, index=False)
+                    results[code] = df
+            except Exception as e:
+                logger.error(f"{code}下载失败: {e}")
             
-            for fut in tqdm(as_completed(futures), total=len(futures), desc="下载进度"):
-                code = futures[fut]
-                try:
-                    df = fut.result()
-                    if not df.empty:
-                        # 保存到文件
-                        csv_path = self.data_dir / f"{code}.csv"
-                        df.to_csv(csv_path, index=False)
-                        results[code] = df
-                except Exception as e:
-                    logger.error(f"{code}下载失败: {e}")
+            # 请求间隔延迟
+            if self.request_delay > 0:
+                time.sleep(self.request_delay)
         
         return results
 
