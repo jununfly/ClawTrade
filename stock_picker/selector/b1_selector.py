@@ -10,9 +10,10 @@ B1策略由以下四个Filter组成：
 """
 from dataclasses import dataclass
 try:
-    from typing import Protocol
+    from typing import Protocol, Tuple
 except ImportError:
     from typing_extensions import Protocol
+    Tuple = tuple
 from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
@@ -60,7 +61,7 @@ def compute_zx_lines(
     df: pd.DataFrame,
     m1: int = 14, m2: int = 28, m3: int = 57, m4: int = 114,
     zxdq_span: int = 10,
-) -> tuple[pd.Series, pd.Series]:
+):
     """计算知行线（zxdq和zxdkx）"""
     close = df["close"].astype(float)
     zxdq = close.ewm(span=zxdq_span, adjust=False).mean().ewm(span=zxdq_span, adjust=False).mean()
@@ -86,8 +87,8 @@ def compute_weekly_close(df: pd.DataFrame) -> pd.Series:
 
 def compute_weekly_ma_bull(
     df: pd.DataFrame,
-    ma_periods: tuple[int, int, int] = (20, 60, 120),
-) -> pd.Series:
+    ma_periods=(20, 60, 120),
+):
     """计算周线均线多头排列"""
     weekly_close = compute_weekly_close(df)
     s, m, l = ma_periods
