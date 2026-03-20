@@ -41,14 +41,24 @@
 
 ## 三、核心功能
 
-### 3.1 选股器 (Stock Selector)
+### 3.1 数据获取器 (Data Fetcher)
+
+| 功能 | 说明 |
+|------|------|
+| 多数据源 | 支持 AkShare / Tushare |
+| 分批获取 | 每批100只，批间等待避免限流 |
+| 自动重试 | 失败后指数退避重试（2s→4s→8s） |
+| 增量更新 | 仅获取最近N天数据 |
+| 详细日志 | 错误分类显示，便于问题排查 |
+
+### 3.2 选股器 (Stock Selector)
 
 | 功能 | 说明 |
 |------|------|
 | B1策略选股 | 基于KDJ、知行线、周线均线的选股策略 |
 | 砖型图选股 | 基于砖型图形态的选股策略 |
 
-### 3.2 回测引擎 (Backtest Engine)
+### 3.3 回测引擎 (Backtest Engine)
 
 | 功能 | 说明 |
 |------|------|
@@ -112,14 +122,35 @@ export TUSHARE_TOKEN=你的token
 export GEMINI_API_KEY=你的key
 ```
 
-### 6.3 使用方式
+### 6.3 数据获取器配置
+
+DataFetcher 支持多种参数配置：
+
+```python
+from stock_picker.data.fetcher import DataFetcher
+
+fetcher = DataFetcher(
+    data_source="akshare",   # 数据源: akshare 或 tushare
+    data_dir="data/raw",     # 数据存储目录
+    request_delay=1.0,       # 请求间隔（秒）
+    batch_size=100,          # 每批股票数量
+    batch_delay=60,          # 每批之间等待秒数
+    max_retries=3,          # 最大重试次数
+    base_delay=2.0,         # 指数退避基础时间
+)
+```
+
+### 6.4 使用方式
 
 ```bash
 # 查看帮助
 python main.py --help
 
-# 获取数据
+# 获取数据（自动分批获取，避免被限流）
 python main.py fetch --codes 600519,000001 --start 20240101
+
+# 增量更新最近30天数据
+python main.py fetch --update --days 30
 
 # 选股
 python main.py select --strategy b1 --date 20240315
